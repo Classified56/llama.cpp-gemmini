@@ -1,6 +1,7 @@
 @import 'tailwindcss';
-@source ".";
-
+@source '.';
+@plugin '@tailwindcss/forms';
+@plugin '@tailwindcss/typography';
 @import 'tw-animate-css';
 
 @custom-variant dark (&:is(.dark *));
@@ -140,6 +141,7 @@
 		@apply bg-background text-foreground;
 		scrollbar-width: thin;
 		scrollbar-gutter: stable;
+		overflow: hidden; /* Added due to Mermaid rendering somehow causing the double scrollbar */
 	}
 
 	/* Global scrollbar styling - visible only on hover */
