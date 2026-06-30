@@ -16,11 +16,7 @@ struct ggml_backend_gemmini_context {
 // Gemmini matmul eligibility
 // -----------------------------------------------------------------------------
 
-static bool ggml_gemmini_can_mul_mat(const struct ggml_tensor * op) {
-#if !defined(GGML_GEMMINI_ENABLE_MATMUL)
-    GGML_UNUSED(op);
-    return false;
-#else
+static bool ggml_gemmini_can_mul_mat_i8_i32(const struct ggml_tensor * op) {
     if (op == nullptr || op->op != GGML_OP_MUL_MAT) {
         return false;
     }
@@ -32,15 +28,17 @@ static bool ggml_gemmini_can_mul_mat(const struct ggml_tensor * op) {
         return false;
     }
 
-    // Start extremely narrow.
-    // Expand only after each case is tested against CPU.
-    if (src0->type != GGML_TYPE_F32 ||
-        src1->type != GGML_TYPE_F32 ||
-        op->type   != GGML_TYPE_F32) {
+    // First milestone: synthetic I8 x I8 -> I32 only.
+    if (src0->type != GGML_TYPE_I8 ||
+        src1->type != GGML_TYPE_I8 ||
+        op->type   != GGML_TYPE_I32) {
         return false;
     }
 
-    if (!ggml_is_matrix(src0) || !ggml_is_matrix(src1)) {
+    // Keep the first implementation narrow.
+    if (!ggml_is_matrix(src0) ||
+        !ggml_is_matrix(src1) ||
+        !ggml_is_matrix(op)) {
         return false;
     }
 
@@ -50,13 +48,32 @@ static bool ggml_gemmini_can_mul_mat(const struct ggml_tensor * op) {
         return false;
     }
 
-    // Very conservative size gate. Adjust after measurement.
-    const int64_t n = op->ne[0];
-    const int64_t m = op->ne[1];
-    const int64_t k = src1->ne[0];
+    // GGML MUL_MAT shape convention:
+    //   src0: [K, N]
+    //   src1: [K, M]
+    //   dst:  [N, M]
+    //
+    // Mathematically:
+    //   dst = src0^T * src1
+    const int64_t K0 = src0->ne[0];
+    const int64_t N  = src0->ne[1];
+    const int64_t K1 = src1->ne[0];
+    const int64_t M  = src1->ne[1];
 
-    return n >= 16 && m >= 16 && k >= 16;
-#endif
+    if (K0 != K1) {
+        return false;
+    }
+
+    if (op->ne[0] != N || op->ne[1] != M) {
+        return false;
+    }
+
+    // Avoid tiny GEMV/decode cases at first.
+    if (M < 16 || N < 16 || K0 < 16) {
+        return false;
+    }
+
+    return true;
 }
 
 static void ggml_gemmini_log_mul_mat(const struct ggml_tensor * dst) {
@@ -323,7 +340,7 @@ static bool ggml_backend_gemmini_device_supports_op(
             return true;
 
         case GGML_OP_MUL_MAT:
-            return ggml_gemmini_can_mul_mat(op);
+            return ggml_gemmini_can_mul_mat_i8_i32(op);
 
         default:
             return false;
