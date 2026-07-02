@@ -1,6 +1,106 @@
 {
-  "version": 4,
+  "version": 3,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 21,
+    "patch": 0
+  },
   "configurePresets": [
+    {
+      "name": "native-base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-native-${presetName}",
+      "cacheVariables": {
+        "LLAMA_CURL": "OFF",
+        "LLAMA_SKIP_UI": "ON",
+        "BUILD_SHARED_LIBS": "OFF",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "riscv-base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-${presetName}",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "riscv64-unknown-linux-gnu-gcc",
+        "CMAKE_CXX_COMPILER": "riscv64-unknown-linux-gnu-g++",
+        "CMAKE_SYSTEM_NAME": "Linux",
+        "CMAKE_SYSTEM_PROCESSOR": "riscv64",
+
+        "GGML_NATIVE": "OFF",
+        "GGML_RVV": "OFF",
+        "GGML_CPU_AARCH64": "OFF",
+
+        "LLAMA_CURL": "OFF",
+        "LLAMA_SKIP_UI": "ON",
+        "BUILD_SHARED_LIBS": "OFF",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+
+        "CMAKE_CXX_FLAGS": "-static-libstdc++ -static-libgcc",
+        "CMAKE_EXE_LINKER_FLAGS": "-static-libstdc++ -static-libgcc -Wl,--start-group -lm -Wl,--end-group"
+      }
+    },
+
+    {
+      "name": "native-release",
+      "displayName": "Native workstation Release",
+      "inherits": "native-base",
+      "binaryDir": "${sourceDir}/build-native-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "native-debug",
+      "displayName": "Native workstation Debug",
+      "inherits": "native-base",
+      "binaryDir": "${sourceDir}/build-native-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+
+    {
+      "name": "riscv-release",
+      "displayName": "Plain RISC-V Release",
+      "inherits": "riscv-base",
+      "binaryDir": "${sourceDir}/build-riscv-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "riscv-debug",
+      "displayName": "Plain RISC-V Debug",
+      "inherits": "riscv-base",
+      "binaryDir": "${sourceDir}/build-riscv-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+
+    {
+      "name": "riscv-gemmini-release",
+      "displayName": "RISC-V Gemmini Release",
+      "inherits": "riscv-base",
+      "binaryDir": "${sourceDir}/build-riscv-gemmini-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "GGML_GEMMINI": "ON"
+      }
+    },
+    {
+      "name": "riscv-gemmini-debug",
+      "displayName": "RISC-V Gemmini Debug",
+      "inherits": "riscv-base",
+      "binaryDir": "${sourceDir}/build-riscv-gemmini-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "GGML_GEMMINI": "ON"
+      }
+    },
     {
         "name":  "base",
         "hidden": true,
@@ -91,5 +191,32 @@
 
     { "name": "x64-windows-vulkan-debug", "inherits": [ "base", "vulkan", "debug" ] },
     { "name": "x64-windows-vulkan-release", "inherits": [ "base", "vulkan", "release" ] }
+  ],
+
+  "buildPresets": [
+    {
+      "name": "native-release",
+      "configurePreset": "native-release"
+    },
+    {
+      "name": "native-debug",
+      "configurePreset": "native-debug"
+    },
+    {
+      "name": "riscv-release",
+      "configurePreset": "riscv-release"
+    },
+    {
+      "name": "riscv-debug",
+      "configurePreset": "riscv-debug"
+    },
+    {
+      "name": "riscv-gemmini-release",
+      "configurePreset": "riscv-gemmini-release"
+    },
+    {
+      "name": "riscv-gemmini-debug",
+      "configurePreset": "riscv-gemmini-debug"
+    }
   ]
 }
