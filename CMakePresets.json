@@ -32,14 +32,16 @@
         "GGML_NATIVE": "OFF",
         "GGML_RVV": "OFF",
         "GGML_CPU_AARCH64": "OFF",
+        "GGML_STATIC": "ON",
 
         "LLAMA_CURL": "OFF",
         "LLAMA_SKIP_UI": "ON",
         "BUILD_SHARED_LIBS": "OFF",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
 
-        "CMAKE_CXX_FLAGS": "-static-libstdc++ -static-libgcc",
-        "CMAKE_EXE_LINKER_FLAGS": "-static-libstdc++ -static-libgcc -Wl,--start-group -lm -Wl,--end-group"
+        "CMAKE_C_FLAGS": "-march=rv64gc -mabi=lp64d",
+        "CMAKE_CXX_FLAGS": "-static-libstdc++ -static-libgcc -march=rv64gc -mabi=lp64d",
+        "CMAKE_EXE_LINKER_FLAGS": "-static -static-libstdc++ -static-libgcc -Wl,--start-group -lm -Wl,--end-group"
       }
     },
 

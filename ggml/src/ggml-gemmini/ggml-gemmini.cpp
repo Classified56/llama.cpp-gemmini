@@ -4,6 +4,7 @@
 #include "ggml-backend-impl.h"
 #include "ggml-cpu.h"
 
+#include <cstdlib>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -21,8 +22,10 @@ static bool ggml_gemmini_can_mul_mat_i8_i32(const struct ggml_tensor * op) {
         return false;
     }
 
-    const struct ggml_tensor * src0 = op->src[0];
-    const struct ggml_tensor * src1 = op->src[1];
+    // const struct ggml_tensor * src0 = op->src[0];
+    // const struct ggml_tensor * src1 = op->src[1];
+    const ggml_tensor * src0 = op->src[0]; // weights / left matrix
+    const ggml_tensor * src1 = op->src[1]; // activations / right matrix
 
     if (src0 == nullptr || src1 == nullptr) {
         return false;
@@ -31,7 +34,7 @@ static bool ggml_gemmini_can_mul_mat_i8_i32(const struct ggml_tensor * op) {
     // First milestone: synthetic I8 x I8 -> I32 only.
     if (src0->type != GGML_TYPE_I8 ||
         src1->type != GGML_TYPE_I8 ||
-        op->type   != GGML_TYPE_I32) {
+        op->type   != GGML_TYPE_I32) { 
         return false;
     }
 
@@ -229,12 +232,14 @@ bool ggml_backend_is_gemmini(ggml_backend_t backend) {
 }
 
 bool ggml_backend_gemmini_is_available(void) {
-    // TODO:
-    // Replace with a real hardware/runtime probe if needed.
-    //
-    // For RoCC/custom-instruction Gemmini, this might be compile-time only.
-    // For Linux driver/proxy-kernel Gemmini, this should check that the runtime
-    // can actually submit work.
+    const char * disable = std::getenv("GGML_GEMMINI_DISABLE");
+    if (disable && std::strcmp(disable, "1") == 0) {
+        return false;
+    }
+
+    // First bring-up policy:
+    // if compiled with GGML_USE_GEMMINI, assume this binary is intended
+    // to run on FireSim/Gemmini Linux.
     return true;
 }
 
@@ -253,7 +258,7 @@ static const char * ggml_backend_gemmini_device_get_name(ggml_backend_dev_t dev)
 
 static const char * ggml_backend_gemmini_device_get_description(ggml_backend_dev_t dev) {
     GGML_UNUSED(dev);
-    return "RISC-V Gemmini accelerator";
+    return "RISC-V Gemmini RoCC accelerator";
 }
 
 static void ggml_backend_gemmini_device_get_memory(
@@ -267,8 +272,7 @@ static void ggml_backend_gemmini_device_get_memory(
     *total = 0;
 }
 
-static enum ggml_backend_dev_type ggml_backend_gemmini_device_get_type(
-        ggml_backend_dev_t dev) {
+static enum ggml_backend_dev_type ggml_backend_gemmini_device_get_type(ggml_backend_dev_t dev) {
     GGML_UNUSED(dev);
     return GGML_BACKEND_DEVICE_TYPE_ACCEL;
 }
@@ -278,20 +282,22 @@ static void ggml_backend_gemmini_device_get_props(
         struct ggml_backend_dev_props * props) {
     props->name        = ggml_backend_gemmini_device_get_name(dev);
     props->description = ggml_backend_gemmini_device_get_description(dev);
-    props->type        = ggml_backend_gemmini_device_get_type(dev);
+    props->memory_free = 0;
+    props->memory_total = 0;
+    props->type        = GGML_BACKEND_DEVICE_TYPE_ACCEL;
+    props->device_id   = nullptr;
+
+    props->caps = {};
+    props->caps.async                = false;
+    props->caps.host_buffer          = true;
+    props->caps.buffer_from_host_ptr = true;
+    props->caps.events               = false;
 
     ggml_backend_gemmini_device_get_memory(
         dev,
         &props->memory_free,
         &props->memory_total
     );
-
-    props->caps = {
-        /* .async                = */ false,
-        /* .host_buffer          = */ false,
-        /* .buffer_from_host_ptr = */ true,
-        /* .events               = */ false,
-    };
 }
 
 static ggml_backend_t ggml_backend_gemmini_device_init_backend(
@@ -382,9 +388,19 @@ static const char * ggml_backend_gemmini_reg_get_name(ggml_backend_reg_t reg) {
     return "Gemmini";
 }
 
+static bool ggml_backend_gemmini_is_available(void) {
+    #if defined(GGML_GEMMINI_FORCE_AVAILABLE)
+        return true;
+    #elif defined(__riscv)
+        return std::getenv("GGML_DISABLE_GEMMINI") == nullptr;
+    #else
+        return false;
+    #endif
+}
+
 static size_t ggml_backend_gemmini_reg_get_device_count(ggml_backend_reg_t reg) {
     GGML_UNUSED(reg);
-    return 1;
+    return ggml_gemmini_is_available() ? 1 : 0;
 }
 
 static ggml_backend_dev_t ggml_backend_gemmini_reg_get_device(

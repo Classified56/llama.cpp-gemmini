@@ -45,3 +45,12 @@ if (GGML_GEMMINI_ENABLE_TILED_MATMUL)
 
     target_compile_definitions(ggml-gemmini PRIVATE GGML_GEMMINI_ENABLE_TILED_MATMUL)
 endif()
+
+option(GGML_GEMMINI_FORCE_AVAILABLE
+    "Assume Gemmini hardware is available at runtime"
+    OFF
+)
+
+if (GGML_GEMMINI_FORCE_AVAILABLE)
+    target_compile_definitions(ggml-gemmini PRIVATE GGML_GEMMINI_FORCE_AVAILABLE)
+endif()
