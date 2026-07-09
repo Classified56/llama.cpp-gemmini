@@ -6,7 +6,6 @@
 
 #include <cstdlib>
 #include <cstdint>
-#include <cstdio>
 #include <cstring>
 
 struct ggml_backend_gemmini_context {
@@ -14,31 +13,69 @@ struct ggml_backend_gemmini_context {
 };
 
 // -----------------------------------------------------------------------------
-// Gemmini matmul eligibility
+// Availability / identity
+// -----------------------------------------------------------------------------
+
+static ggml_guid_t ggml_backend_gemmini_guid(void) {
+    // "gemmini-riscv-01" as bytes. The only strict requirement is uniqueness
+    // within the process.
+    static ggml_guid guid = {
+        0x67, 0x65, 0x6d, 0x6d,
+        0x69, 0x6e, 0x69, 0x2d,
+        0x72, 0x69, 0x73, 0x63,
+        0x76, 0x2d, 0x30, 0x31
+    };
+
+    return &guid;
+}
+
+bool ggml_backend_gemmini_is_available(void) {
+#if defined(GGML_GEMMINI_FORCE_AVAILABLE)
+    return true;
+#elif defined(__riscv)
+    const char * disable = std::getenv("GGML_DISABLE_GEMMINI");
+    return disable == nullptr || std::strcmp(disable, "1") != 0;
+#else
+    // Do not claim a Gemmini device on native x86/ARM workstation builds unless
+    // the user explicitly forces it for registry/debug testing.
+    return false;
+#endif
+}
+
+const char * ggml_backend_gemmini_get_device_name(void) {
+    return "Gemmini";
+}
+
+// -----------------------------------------------------------------------------
+// Optional matmul-dispatch stub
 // -----------------------------------------------------------------------------
 
 static bool ggml_gemmini_can_mul_mat_i8_i32(const struct ggml_tensor * op) {
+#if !defined(GGML_GEMMINI_ENABLE_MATMUL_STUB)
+    GGML_UNUSED(op);
+    return false;
+#else
     if (op == nullptr || op->op != GGML_OP_MUL_MAT) {
         return false;
     }
 
-    // const struct ggml_tensor * src0 = op->src[0];
-    // const struct ggml_tensor * src1 = op->src[1];
-    const ggml_tensor * src0 = op->src[0]; // weights / left matrix
-    const ggml_tensor * src1 = op->src[1]; // activations / right matrix
+    const struct ggml_tensor * src0 = op->src[0];
+    const struct ggml_tensor * src1 = op->src[1];
 
     if (src0 == nullptr || src1 == nullptr) {
         return false;
     }
 
-    // First milestone: synthetic I8 x I8 -> I32 only.
+    // First synthetic milestone only:
+    //   src0: I8 [K, N]
+    //   src1: I8 [K, M]
+    //   dst:  I32[N, M]
     if (src0->type != GGML_TYPE_I8 ||
         src1->type != GGML_TYPE_I8 ||
-        op->type   != GGML_TYPE_I32) { 
+        op->type   != GGML_TYPE_I32) {
         return false;
     }
 
-    // Keep the first implementation narrow.
     if (!ggml_is_matrix(src0) ||
         !ggml_is_matrix(src1) ||
         !ggml_is_matrix(op)) {
@@ -51,82 +88,33 @@ static bool ggml_gemmini_can_mul_mat_i8_i32(const struct ggml_tensor * op) {
         return false;
     }
 
-    // GGML MUL_MAT shape convention:
-    //   src0: [K, N]
-    //   src1: [K, M]
-    //   dst:  [N, M]
-    //
-    // Mathematically:
-    //   dst = src0^T * src1
-    const int64_t K0 = src0->ne[0];
-    const int64_t N  = src0->ne[1];
-    const int64_t K1 = src1->ne[0];
-    const int64_t M  = src1->ne[1];
+    const int64_t k0 = src0->ne[0];
+    const int64_t n  = src0->ne[1];
+    const int64_t k1 = src1->ne[0];
+    const int64_t m  = src1->ne[1];
 
-    if (K0 != K1) {
+    if (k0 != k1) {
         return false;
     }
 
-    if (op->ne[0] != N || op->ne[1] != M) {
+    if (op->ne[0] != n || op->ne[1] != m) {
         return false;
     }
 
-    // Avoid tiny GEMV/decode cases at first.
-    if (M < 16 || N < 16 || K0 < 16) {
-        return false;
-    }
-
-    return true;
+    // Keep tiny GEMV/decode cases on CPU for now.
+    return m >= 16 && n >= 16 && k0 >= 16;
+#endif
 }
 
-static void ggml_gemmini_log_mul_mat(const struct ggml_tensor * dst) {
-    const struct ggml_tensor * src0 = dst->src[0];
-    const struct ggml_tensor * src1 = dst->src[1];
-
-    GGML_LOG_INFO(
-        "ggml-gemmini: MUL_MAT\n"
-        "  src0 name=%s type=%s ne=[%lld,%lld,%lld,%lld] nb=[%zu,%zu,%zu,%zu]\n"
-        "  src1 name=%s type=%s ne=[%lld,%lld,%lld,%lld] nb=[%zu,%zu,%zu,%zu]\n"
-        "  dst  name=%s type=%s ne=[%lld,%lld,%lld,%lld] nb=[%zu,%zu,%zu,%zu]\n",
-        src0->name,
-        ggml_type_name(src0->type),
-        (long long) src0->ne[0], (long long) src0->ne[1],
-        (long long) src0->ne[2], (long long) src0->ne[3],
-        src0->nb[0], src0->nb[1], src0->nb[2], src0->nb[3],
-
-        src1->name,
-        ggml_type_name(src1->type),
-        (long long) src1->ne[0], (long long) src1->ne[1],
-        (long long) src1->ne[2], (long long) src1->ne[3],
-        src1->nb[0], src1->nb[1], src1->nb[2], src1->nb[3],
-
-        dst->name,
-        ggml_type_name(dst->type),
-        (long long) dst->ne[0], (long long) dst->ne[1],
-        (long long) dst->ne[2], (long long) dst->ne[3],
-        dst->nb[0], dst->nb[1], dst->nb[2], dst->nb[3]
-    );
-}
-
-static void ggml_gemmini_mul_mat(
+static void ggml_gemmini_mul_mat_stub(
         ggml_backend_gemmini_context * ctx,
         struct ggml_tensor * dst) {
     GGML_UNUSED(ctx);
+    GGML_UNUSED(dst);
 
-    ggml_gemmini_log_mul_mat(dst);
-
-#if !defined(GGML_GEMMINI_ENABLE_MATMUL)
-    GGML_ABORT("%s: Gemmini MUL_MAT path is not enabled", __func__);
-#else
-    // TODO:
-    //   1. Decode GGML MUL_MAT shape into Gemmini M/N/K.
-    //   2. Pack or transpose if Gemmini requires a different layout.
-    //   3. Call Gemmini tiled matmul.
-    //   4. Write directly into dst->data.
-    //
-    // Do not return success until dst is fully computed.
-    GGML_ABORT("%s: Gemmini MUL_MAT path is enabled but not implemented", __func__);
-#endif
+    // This backend is currently intended to build and register only. Once you
+    // wire tiled_matmul_auto, replace this abort with real output writes.
+    GGML_ABORT("%s: Gemmini MUL_MAT dispatch reached, but compute is not implemented yet", __func__);
 }
 
 // -----------------------------------------------------------------------------
@@ -168,15 +156,12 @@ static enum ggml_status ggml_backend_gemmini_graph_compute(
                 break;
 
             case GGML_OP_MUL_MAT:
-                ggml_gemmini_mul_mat(ctx, node);
+                ggml_gemmini_mul_mat_stub(ctx, node);
                 break;
 
             default:
-                GGML_ABORT(
-                    "%s: unsupported op assigned to Gemmini backend: %s",
-                    __func__,
-                    ggml_op_desc(node)
-                );
+                GGML_ABORT("%s: unsupported op assigned to Gemmini backend: %s",
+                           __func__, ggml_op_desc(node));
         }
     }
 
@@ -184,67 +169,27 @@ static enum ggml_status ggml_backend_gemmini_graph_compute(
 }
 
 static struct ggml_backend_i ggml_backend_gemmini_i = {
-    /* .get_name                = */ ggml_backend_gemmini_get_name,
-    /* .free                    = */ ggml_backend_gemmini_free,
-    /* .set_tensor_async        = */ nullptr,
-    /* .get_tensor_async        = */ nullptr,
-    /* .set_tensor_2d_async     = */ nullptr,
-    /* .get_tensor_2d_async     = */ nullptr,
-    /* .cpy_tensor_async        = */ nullptr,
-    /* .synchronize             = */ nullptr,
-    /* .graph_plan_create       = */ nullptr,
-    /* .graph_plan_free         = */ nullptr,
-    /* .graph_plan_update       = */ nullptr,
-    /* .graph_plan_compute      = */ nullptr,
-    /* .graph_compute           = */ ggml_backend_gemmini_graph_compute,
-    /* .event_record            = */ nullptr,
-    /* .event_wait              = */ nullptr,
-    /* .graph_optimize          = */ nullptr,
+    /* .get_name           = */ ggml_backend_gemmini_get_name,
+    /* .free               = */ ggml_backend_gemmini_free,
+    /* .set_tensor_async   = */ nullptr,
+    /* .get_tensor_async   = */ nullptr,
+    /* .set_tensor_2d_async= */ nullptr,
+    /* .get_tensor_2d_async= */ nullptr,
+    /* .cpy_tensor_async   = */ nullptr,
+    /* .synchronize        = */ nullptr,
+    /* .graph_plan_create  = */ nullptr,
+    /* .graph_plan_free    = */ nullptr,
+    /* .graph_plan_update  = */ nullptr,
+    /* .graph_plan_compute = */ nullptr,
+    /* .graph_compute      = */ ggml_backend_gemmini_graph_compute,
+    /* .event_record       = */ nullptr,
+    /* .event_wait         = */ nullptr,
+    /* .graph_optimize     = */ nullptr,
 };
-
-static ggml_guid_t ggml_backend_gemmini_guid(void) {
-    static ggml_guid guid = {
-        0x67, 0x65, 0x6d, 0x6d,
-        0x69, 0x6e, 0x69, 0x2d,
-        0x72, 0x69, 0x73, 0x63,
-        0x76, 0x2d, 0x30, 0x31
-    };
-
-    return &guid;
-}
-
-ggml_backend_t ggml_backend_gemmini_init(void) {
-    ggml_backend_gemmini_context * ctx = new ggml_backend_gemmini_context;
-
-    ggml_backend_t backend = new ggml_backend {
-        /* .guid    = */ ggml_backend_gemmini_guid(),
-        /* .iface   = */ ggml_backend_gemmini_i,
-        /* .device  = */ ggml_backend_reg_dev_get(ggml_backend_gemmini_reg(), 0),
-        /* .context = */ ctx,
-    };
-
-    return backend;
-}
 
 bool ggml_backend_is_gemmini(ggml_backend_t backend) {
     return backend != nullptr &&
            ggml_guid_matches(backend->guid, ggml_backend_gemmini_guid());
-}
-
-bool ggml_backend_gemmini_is_available(void) {
-    const char * disable = std::getenv("GGML_GEMMINI_DISABLE");
-    if (disable && std::strcmp(disable, "1") == 0) {
-        return false;
-    }
-
-    // First bring-up policy:
-    // if compiled with GGML_USE_GEMMINI, assume this binary is intended
-    // to run on FireSim/Gemmini Linux.
-    return true;
-}
-
-const char * ggml_backend_gemmini_get_device_name(void) {
-    return "Gemmini";
 }
 
 // -----------------------------------------------------------------------------
@@ -267,7 +212,8 @@ static void ggml_backend_gemmini_device_get_memory(
         size_t * total) {
     GGML_UNUSED(dev);
 
-    // Host-attached accelerator: no separate device memory to report yet.
+    // Gemmini is modeled as a CPU-attached accelerator using host-visible
+    // buffers. It does not expose a separate device memory pool here.
     *free  = 0;
     *total = 0;
 }
@@ -282,22 +228,20 @@ static void ggml_backend_gemmini_device_get_props(
         struct ggml_backend_dev_props * props) {
     props->name        = ggml_backend_gemmini_device_get_name(dev);
     props->description = ggml_backend_gemmini_device_get_description(dev);
-    props->memory_free = 0;
-    props->memory_total = 0;
-    props->type        = GGML_BACKEND_DEVICE_TYPE_ACCEL;
+    props->type        = ggml_backend_gemmini_device_get_type(dev);
     props->device_id   = nullptr;
-
-    props->caps = {};
-    props->caps.async                = false;
-    props->caps.host_buffer          = true;
-    props->caps.buffer_from_host_ptr = true;
-    props->caps.events               = false;
 
     ggml_backend_gemmini_device_get_memory(
         dev,
         &props->memory_free,
-        &props->memory_total
-    );
+        &props->memory_total);
+
+    props->caps = {
+        /* .async                = */ false,
+        /* .host_buffer          = */ false,
+        /* .buffer_from_host_ptr = */ true,
+        /* .events               = */ false,
+    };
 }
 
 static ggml_backend_t ggml_backend_gemmini_device_init_backend(
@@ -306,18 +250,12 @@ static ggml_backend_t ggml_backend_gemmini_device_init_backend(
     GGML_UNUSED(dev);
     GGML_UNUSED(params);
 
-    if (!ggml_backend_gemmini_is_available()) {
-        return nullptr;
-    }
-
     return ggml_backend_gemmini_init();
 }
 
 static ggml_backend_buffer_type_t ggml_backend_gemmini_device_get_buffer_type(
         ggml_backend_dev_t dev) {
     GGML_UNUSED(dev);
-
-    // Use CPU buffers until Gemmini has a real separate memory allocator.
     return ggml_backend_cpu_buffer_type();
 }
 
@@ -336,6 +274,10 @@ static bool ggml_backend_gemmini_device_supports_op(
         ggml_backend_dev_t dev,
         const struct ggml_tensor * op) {
     GGML_UNUSED(dev);
+
+    if (op == nullptr) {
+        return false;
+    }
 
     switch (op->op) {
         case GGML_OP_NONE:
@@ -357,7 +299,6 @@ static bool ggml_backend_gemmini_device_supports_buft(
         ggml_backend_dev_t dev,
         ggml_backend_buffer_type_t buft) {
     GGML_UNUSED(dev);
-
     return ggml_backend_buft_is_host(buft);
 }
 
@@ -388,25 +329,16 @@ static const char * ggml_backend_gemmini_reg_get_name(ggml_backend_reg_t reg) {
     return "Gemmini";
 }
 
-static bool ggml_backend_gemmini_is_available(void) {
-    #if defined(GGML_GEMMINI_FORCE_AVAILABLE)
-        return true;
-    #elif defined(__riscv)
-        return std::getenv("GGML_DISABLE_GEMMINI") == nullptr;
-    #else
-        return false;
-    #endif
-}
-
 static size_t ggml_backend_gemmini_reg_get_device_count(ggml_backend_reg_t reg) {
     GGML_UNUSED(reg);
-    return ggml_gemmini_is_available() ? 1 : 0;
+    return ggml_backend_gemmini_is_available() ? 1 : 0;
 }
 
 static ggml_backend_dev_t ggml_backend_gemmini_reg_get_device(
         ggml_backend_reg_t reg,
         size_t index) {
     GGML_ASSERT(index == 0);
+    GGML_ASSERT(ggml_backend_gemmini_is_available());
 
     static ggml_backend_device ggml_backend_gemmini_device = {
         /* .iface   = */ ggml_backend_gemmini_device_i,
@@ -422,7 +354,6 @@ static void * ggml_backend_gemmini_get_proc_address(
         const char * name) {
     GGML_UNUSED(reg);
 
-    // Optional extension point. Keep this minimal for now.
     if (std::strcmp(name, "ggml_backend_gemmini_is_available") == 0) {
         return reinterpret_cast<void *>(ggml_backend_gemmini_is_available);
     }
@@ -445,6 +376,23 @@ ggml_backend_reg_t ggml_backend_gemmini_reg(void) {
     };
 
     return &ggml_backend_gemmini_reg;
+}
+
+ggml_backend_t ggml_backend_gemmini_init(void) {
+    if (!ggml_backend_gemmini_is_available()) {
+        return nullptr;
+    }
+
+    ggml_backend_gemmini_context * ctx = new ggml_backend_gemmini_context;
+
+    ggml_backend_t backend = new ggml_backend {
+        /* .guid    = */ ggml_backend_gemmini_guid(),
+        /* .iface   = */ ggml_backend_gemmini_i,
+        /* .device  = */ ggml_backend_reg_dev_get(ggml_backend_gemmini_reg(), 0),
+        /* .context = */ ctx,
+    };
+
+    return backend;
 }
 
 GGML_BACKEND_DL_IMPL(ggml_backend_gemmini_reg)
