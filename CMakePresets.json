@@ -71,7 +71,7 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "GGML_GEMMINI": "ON",
-        "GGML_GEMMINI_FORCE_AVAILBLE": "ON"
+        "GGML_GEMMINI_FORCE_AVAILABLE": "ON"
       }
     },
     {
@@ -82,7 +82,7 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "GGML_GEMMINI": "ON",
-        "GGML_GEMMINI_FORCE_AVAILBLE": "ON"
+        "GGML_GEMMINI_FORCE_AVAILABLE": "ON"
       }
     },
     {
