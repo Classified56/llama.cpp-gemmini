@@ -26,16 +26,13 @@ option(GGML_GEMMINI_FORCE_AVAILABLE
     OFF
 )
 
-# Compile the matmul eligibility stub. This does not implement Gemmini compute;
-# it only allows the scheduler to hand synthetic I8xI8->I32 MUL_MAT nodes to
-# the backend, where graph_compute will intentionally abort until implemented.
-option(GGML_GEMMINI_ENABLE_MATMUL_STUB
-    "Advertise a narrow synthetic I8xI8->I32 MUL_MAT stub for dispatch debugging"
+option(GGML_GEMMINI_ENABLE_NATIVE_TEST_MATMUL
+    "Enable native reference MUL_MAT execution inside the Gemmini backend for backend/scheduler tests"
     OFF
 )
 
 option(GGML_GEMMINI_ENABLE_TILED_MATMUL
-    "Enable calls to Gemmini tiled_matmul_auto"
+    "Enable Gemmini tiled_matmul_auto integration point"
     OFF
 )
 
@@ -52,8 +49,8 @@ if (GGML_GEMMINI_FORCE_AVAILABLE)
     target_compile_definitions(ggml-gemmini PRIVATE GGML_GEMMINI_FORCE_AVAILABLE)
 endif()
 
-if (GGML_GEMMINI_ENABLE_MATMUL_STUB)
-    target_compile_definitions(ggml-gemmini PRIVATE GGML_GEMMINI_ENABLE_MATMUL_STUB)
+if (GGML_GEMMINI_ENABLE_NATIVE_TEST_MATMUL)
+    target_compile_definitions(ggml-gemmini PRIVATE GGML_GEMMINI_ENABLE_NATIVE_TEST_MATMUL)
 endif()
 
 if (GGML_GEMMINI_ENABLE_TILED_MATMUL)

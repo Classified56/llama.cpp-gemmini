@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <cstdint>
 #include <cstring>
+#include <vector>
 
 struct ggml_backend_gemmini_context {
     int n_threads = 1;
@@ -47,14 +48,34 @@ const char * ggml_backend_gemmini_get_device_name(void) {
 }
 
 // -----------------------------------------------------------------------------
-// Optional matmul-dispatch stub
+// Tensor helpers
 // -----------------------------------------------------------------------------
 
-static bool ggml_gemmini_can_mul_mat_i8_i32(const struct ggml_tensor * op) {
-#if !defined(GGML_GEMMINI_ENABLE_MATMUL_STUB)
-    GGML_UNUSED(op);
-    return false;
-#else
+static inline const char * ggml_gemmini_op_name(const struct ggml_tensor * op) {
+    return op && op->name[0] ? op->name : ggml_op_desc(op);
+}
+
+static inline float ggml_gemmini_get_f32(const struct ggml_tensor * t, int64_t i0, int64_t i1) {
+    return *reinterpret_cast<const float *>(reinterpret_cast<const char *>(t->data) + i0*t->nb[0] + i1*t->nb[1]);
+}
+
+static inline void ggml_gemmini_set_f32(struct ggml_tensor * t, int64_t i0, int64_t i1, float v) {
+    *reinterpret_cast<float *>(reinterpret_cast<char *>(t->data) + i0*t->nb[0] + i1*t->nb[1]) = v;
+}
+
+static inline int8_t ggml_gemmini_get_i8(const struct ggml_tensor * t, int64_t i0, int64_t i1) {
+    return *reinterpret_cast<const int8_t *>(reinterpret_cast<const char *>(t->data) + i0*t->nb[0] + i1*t->nb[1]);
+}
+
+static inline void ggml_gemmini_set_i32(struct ggml_tensor * t, int64_t i0, int64_t i1, int32_t v) {
+    *reinterpret_cast<int32_t *>(reinterpret_cast<char *>(t->data) + i0*t->nb[0] + i1*t->nb[1]) = v;
+}
+
+static bool ggml_gemmini_is_2d_matrix(const struct ggml_tensor * t) {
+    return t != nullptr && ggml_is_matrix(t) && t->ne[2] == 1 && t->ne[3] == 1;
+}
+
+static bool ggml_gemmini_mul_mat_shape_ok(const struct ggml_tensor * op) {
     if (op == nullptr || op->op != GGML_OP_MUL_MAT) {
         return false;
     }
@@ -62,59 +83,167 @@ static bool ggml_gemmini_can_mul_mat_i8_i32(const struct ggml_tensor * op) {
     const struct ggml_tensor * src0 = op->src[0];
     const struct ggml_tensor * src1 = op->src[1];
 
-    if (src0 == nullptr || src1 == nullptr) {
+    if (!ggml_gemmini_is_2d_matrix(src0) ||
+        !ggml_gemmini_is_2d_matrix(src1) ||
+        !ggml_gemmini_is_2d_matrix(op)) {
         return false;
     }
 
-    // First synthetic milestone only:
-    //   src0: I8 [K, N]
-    //   src1: I8 [K, M]
-    //   dst:  I32[N, M]
+    // GGML MUL_MAT shape convention:
+    //   src0: [K, N]
+    //   src1: [K, M]
+    //   dst:  [N, M]
+    //   dst = src0^T * src1
+    const int64_t k0 = src0->ne[0];
+    const int64_t n  = src0->ne[1];
+    const int64_t k1 = src1->ne[0];
+    const int64_t m  = src1->ne[1];
+
+    return k0 == k1 && op->ne[0] == n && op->ne[1] == m;
+}
+
+static bool ggml_gemmini_can_mul_mat_f32(const struct ggml_tensor * op) {
+#if !defined(GGML_GEMMINI_ENABLE_NATIVE_TEST_MATMUL)
+    GGML_UNUSED(op);
+    return false;
+#else
+    if (!ggml_gemmini_mul_mat_shape_ok(op)) {
+        return false;
+    }
+
+    const struct ggml_tensor * src0 = op->src[0];
+    const struct ggml_tensor * src1 = op->src[1];
+
+    return src0->type == GGML_TYPE_F32 &&
+           src1->type == GGML_TYPE_F32 &&
+           op->type   == GGML_TYPE_F32;
+#endif
+}
+
+static bool ggml_gemmini_can_mul_mat_i8_i32(const struct ggml_tensor * op) {
+#if !defined(GGML_GEMMINI_ENABLE_NATIVE_TEST_MATMUL) && !defined(GGML_GEMMINI_ENABLE_TILED_MATMUL)
+    GGML_UNUSED(op);
+    return false;
+#else
+    if (!ggml_gemmini_mul_mat_shape_ok(op)) {
+        return false;
+    }
+
+    const struct ggml_tensor * src0 = op->src[0];
+    const struct ggml_tensor * src1 = op->src[1];
+
     if (src0->type != GGML_TYPE_I8 ||
         src1->type != GGML_TYPE_I8 ||
         op->type   != GGML_TYPE_I32) {
         return false;
     }
 
-    if (!ggml_is_matrix(src0) ||
-        !ggml_is_matrix(src1) ||
-        !ggml_is_matrix(op)) {
-        return false;
-    }
-
-    if (!ggml_is_contiguous(src0) ||
-        !ggml_is_contiguous(src1) ||
-        !ggml_is_contiguous(op)) {
-        return false;
-    }
-
-    const int64_t k0 = src0->ne[0];
-    const int64_t n  = src0->ne[1];
-    const int64_t k1 = src1->ne[0];
-    const int64_t m  = src1->ne[1];
-
-    if (k0 != k1) {
-        return false;
-    }
-
-    if (op->ne[0] != n || op->ne[1] != m) {
-        return false;
-    }
-
-    // Keep tiny GEMV/decode cases on CPU for now.
-    return m >= 16 && n >= 16 && k0 >= 16;
+    // Start with contiguous tensors only for the hardware path. Native test
+    // fallback can handle strides, but keeping this narrow avoids surprising
+    // scheduler placement before the real Gemmini kernel is mature.
+    return ggml_is_contiguous(src0) &&
+           ggml_is_contiguous(src1) &&
+           ggml_is_contiguous(op);
 #endif
 }
 
-static void ggml_gemmini_mul_mat_stub(
-        ggml_backend_gemmini_context * ctx,
-        struct ggml_tensor * dst) {
-    GGML_UNUSED(ctx);
+static bool ggml_gemmini_supports_mul_mat(const struct ggml_tensor * op) {
+    return ggml_gemmini_can_mul_mat_f32(op) || ggml_gemmini_can_mul_mat_i8_i32(op);
+}
+
+// -----------------------------------------------------------------------------
+// Reference matmul implementations
+// -----------------------------------------------------------------------------
+
+static void ggml_gemmini_mul_mat_f32_ref(struct ggml_tensor * dst) {
+    GGML_ASSERT(ggml_gemmini_can_mul_mat_f32(dst));
+
+    const struct ggml_tensor * src0 = dst->src[0]; // [K, N]
+    const struct ggml_tensor * src1 = dst->src[1]; // [K, M]
+
+    const int64_t K = src0->ne[0];
+    const int64_t N = src0->ne[1];
+    const int64_t M = src1->ne[1];
+
+    for (int64_t m = 0; m < M; ++m) {
+        for (int64_t n = 0; n < N; ++n) {
+            float sum = 0.0f;
+            for (int64_t k = 0; k < K; ++k) {
+                sum += ggml_gemmini_get_f32(src0, k, n) * ggml_gemmini_get_f32(src1, k, m);
+            }
+            ggml_gemmini_set_f32(dst, n, m, sum);
+        }
+    }
+}
+
+static void ggml_gemmini_mul_mat_i8_i32_ref(struct ggml_tensor * dst) {
+    GGML_ASSERT(ggml_gemmini_can_mul_mat_i8_i32(dst));
+
+    const struct ggml_tensor * src0 = dst->src[0]; // [K, N]
+    const struct ggml_tensor * src1 = dst->src[1]; // [K, M]
+
+    const int64_t K = src0->ne[0];
+    const int64_t N = src0->ne[1];
+    const int64_t M = src1->ne[1];
+
+    for (int64_t m = 0; m < M; ++m) {
+        for (int64_t n = 0; n < N; ++n) {
+            int32_t sum = 0;
+            for (int64_t k = 0; k < K; ++k) {
+                sum += (int32_t) ggml_gemmini_get_i8(src0, k, n) *
+                       (int32_t) ggml_gemmini_get_i8(src1, k, m);
+            }
+            ggml_gemmini_set_i32(dst, n, m, sum);
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Gemmini hardware hook
+// -----------------------------------------------------------------------------
+
+static bool ggml_gemmini_try_mul_mat_i8_i32_hw(struct ggml_tensor * dst) {
     GGML_UNUSED(dst);
 
-    // This backend is currently intended to build and register only. Once you
-    // wire tiled_matmul_auto, replace this abort with real output writes.
-    GGML_ABORT("%s: Gemmini MUL_MAT dispatch reached, but compute is not implemented yet", __func__);
+#if defined(GGML_GEMMINI_ENABLE_TILED_MATMUL)
+    // TODO: wire this once the local gemmini.h tiled_matmul_auto signature is
+    // known. Keep this function returning false until it writes dst correctly.
+    //
+    // The intended mapping is:
+    //   GGML src0 [K, N], src1 [K, M], dst [N, M]
+    //   Gemmini computes C[M, N] = A[M, K] * B[K, N]
+    // so either pack A=src1^T, B=src0, C temporary, then copy back, or use
+    // Gemmini transpose/stride features if your local API supports them.
+    return false;
+#else
+    return false;
+#endif
+}
+
+static void ggml_gemmini_mul_mat(ggml_backend_gemmini_context * ctx, struct ggml_tensor * dst) {
+    GGML_UNUSED(ctx);
+
+    if (ggml_gemmini_can_mul_mat_i8_i32(dst)) {
+        if (ggml_gemmini_try_mul_mat_i8_i32_hw(dst)) {
+            return;
+        }
+
+#if defined(GGML_GEMMINI_ENABLE_NATIVE_TEST_MATMUL)
+        ggml_gemmini_mul_mat_i8_i32_ref(dst);
+        return;
+#else
+        GGML_ABORT("%s: I8xI8->I32 MUL_MAT reached Gemmini but hardware path is not implemented: %s",
+                   __func__, ggml_gemmini_op_name(dst));
+#endif
+    }
+
+    if (ggml_gemmini_can_mul_mat_f32(dst)) {
+        ggml_gemmini_mul_mat_f32_ref(dst);
+        return;
+    }
+
+    GGML_ABORT("%s: unsupported MUL_MAT assigned to Gemmini backend: %s",
+               __func__, ggml_gemmini_op_name(dst));
 }
 
 // -----------------------------------------------------------------------------
@@ -156,7 +285,7 @@ static enum ggml_status ggml_backend_gemmini_graph_compute(
                 break;
 
             case GGML_OP_MUL_MAT:
-                ggml_gemmini_mul_mat_stub(ctx, node);
+                ggml_gemmini_mul_mat(ctx, node);
                 break;
 
             default:
@@ -288,7 +417,7 @@ static bool ggml_backend_gemmini_device_supports_op(
             return true;
 
         case GGML_OP_MUL_MAT:
-            return ggml_gemmini_can_mul_mat_i8_i32(op);
+            return ggml_gemmini_supports_mul_mat(op);
 
         default:
             return false;
