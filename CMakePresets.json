@@ -63,7 +63,28 @@
         "CMAKE_BUILD_TYPE": "Debug"
       }
     },
-
+    {
+      "name": "native-gemmini-release",
+      "displayName": "Native + Gemmini workstation Release",
+      "inherits": "native-base",
+      "binaryDir": "${sourceDir}/build-native-gemmini-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "GGML_GEMMINI": "ON",
+        "GGML_GEMMINI_FORCE_AVAILBLE": "ON"
+      }
+    },
+    {
+      "name": "native-gemmini-debug",
+      "displayName": "Native + Gemmini workstation Debug",
+      "inherits": "native-base",
+      "binaryDir": "${sourceDir}/build-native-gemmini-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "GGML_GEMMINI": "ON",
+        "GGML_GEMMINI_FORCE_AVAILBLE": "ON"
+      }
+    },
     {
       "name": "riscv-release",
       "displayName": "Plain RISC-V Release",
@@ -203,6 +224,14 @@
     {
       "name": "native-debug",
       "configurePreset": "native-debug"
+    },
+    {
+      "name": "native-gemmini-release",
+      "configurePreset": "native-gemmini-release"
+    },
+    {
+      "name": "native-gemmini-debug",
+      "configurePreset": "native-gemmini-debug"
     },
     {
       "name": "riscv-release",
