@@ -3,12 +3,6 @@
 #include <cstddef>
 #include <cstdint>
 
-// Internal Gemmini runtime abstraction.
-//
-// This header intentionally does not include ggml headers or Gemmini software
-// headers. The GGML backend translates tensors into this simple interface;
-// the hardware implementation translates this interface into Gemmini calls.
-
 enum ggml_gemmini_runtime_status {
     GGML_GEMMINI_RUNTIME_SUCCESS = 0,
     GGML_GEMMINI_RUNTIME_UNAVAILABLE,
@@ -17,25 +11,9 @@ enum ggml_gemmini_runtime_status {
     GGML_GEMMINI_RUNTIME_EXECUTION_FAILED,
 };
 
-struct ggml_gemmini_runtime_info {
-    const char * name;
-    bool available;
-
-    // Initial hardware assumptions. These can later be populated from
-    // gemmini_params.h or compile-time definitions.
-    std::size_t dim;
-    std::size_t input_element_size;
-    std::size_t accumulator_element_size;
-};
-
 struct ggml_gemmini_matmul_i8_params {
     // Dense row-major matrices:
-    //
-    //   C[M, N] = A[M, K] * B[K, N]
-    //
-    // The first wrapper deliberately requires packed buffers. GGML tensor
-    // strides, views, transposes, and quantization metadata stay outside this
-    // layer.
+    //     C[M,N] = A[M,K] * B[K,N]
     const std::int8_t * a;
     const std::int8_t * b;
     std::int32_t * c;
@@ -44,17 +22,14 @@ struct ggml_gemmini_matmul_i8_params {
     std::size_t n;
     std::size_t k;
 
-    // Row strides measured in elements, not bytes.
+    // Row strides in elements, not bytes.
     std::size_t stride_a;
     std::size_t stride_b;
     std::size_t stride_c;
 
-    // Reserved for later Gemmini options.
     bool transpose_a;
     bool transpose_b;
 };
-
-const ggml_gemmini_runtime_info & ggml_gemmini_runtime_get_info();
 
 bool ggml_gemmini_runtime_is_available();
 

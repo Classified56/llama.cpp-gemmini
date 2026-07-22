@@ -1,4 +1,5 @@
 #include "ggml-gemmini.h"
+#include "ggml-gemmini-runtime.h"
 
 #include "ggml-impl.h"
 #include "ggml-backend-impl.h"
@@ -206,15 +207,7 @@ static bool ggml_gemmini_try_mul_mat_i8_i32_hw(struct ggml_tensor * dst) {
     GGML_UNUSED(dst);
 
 #if defined(GGML_GEMMINI_ENABLE_TILED_MATMUL)
-    // TODO: wire this once the local gemmini.h tiled_matmul_auto signature is
-    // known. Keep this function returning false until it writes dst correctly.
-    //
-    // The intended mapping is:
-    //   GGML src0 [K, N], src1 [K, M], dst [N, M]
-    //   Gemmini computes C[M, N] = A[M, K] * B[K, N]
-    // so either pack A=src1^T, B=src0, C temporary, then copy back, or use
-    // Gemmini transpose/stride features if your local API supports them.
-    return false;
+    return ggml_gemmini_execute_runtime_i8(dst);
 #else
     return false;
 #endif

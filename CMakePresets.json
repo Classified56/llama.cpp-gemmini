@@ -71,7 +71,8 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "GGML_GEMMINI": "ON",
-        "GGML_GEMMINI_FORCE_AVAILABLE": "ON"
+        "GGML_GEMMINI_FORCE_AVAILABLE": "ON",
+        "GGML_GEMMINI_ENABLE_NATIVE_TEST_MATMUL": "ON"
       }
     },
     {
@@ -82,7 +83,8 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "GGML_GEMMINI": "ON",
-        "GGML_GEMMINI_FORCE_AVAILABLE": "ON"
+        "GGML_GEMMINI_FORCE_AVAILABLE": "ON",
+        "GGML_GEMMINI_ENABLE_NATIVE_TEST_MATMUL": "ON"
       }
     },
     {
