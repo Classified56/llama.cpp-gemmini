@@ -12,8 +12,14 @@
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build-native-${presetName}",
       "cacheVariables": {
-        "LLAMA_CURL": "OFF",
-        "LLAMA_SKIP_UI": "ON",
+        "GGML_CURL": "OFF",
+        "LLAMA_BUILD_TESTS": "ON",
+        "LLAMA_BUILD_TOOLS": "ON",
+        "LLAMA_BUILD_EXAMPLES": "OFF",
+        "LLAMA_BUILD_APP": "ON",
+        "LLAMA_BUILD_SERVER": "ON",
+        "LLAMA_BUILD_UI": "OFF",
+        "LLAMA_USE_PREBUILT_UI": "OFF",
         "BUILD_SHARED_LIBS": "OFF",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
       }
@@ -34,8 +40,14 @@
         "GGML_CPU_AARCH64": "OFF",
         "GGML_STATIC": "ON",
 
-        "LLAMA_CURL": "OFF",
-        "LLAMA_SKIP_UI": "ON",
+        "GGML_CURL": "OFF",
+        "LLAMA_BUILD_TESTS": "ON",
+        "LLAMA_BUILD_TOOLS": "ON",
+        "LLAMA_BUILD_EXAMPLES": "OFF",
+        "LLAMA_BUILD_APP": "ON",
+        "LLAMA_BUILD_SERVER": "ON",
+        "LLAMA_BUILD_UI": "OFF",
+        "LLAMA_USE_PREBUILT_UI": "OFF",
         "BUILD_SHARED_LIBS": "OFF",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
 

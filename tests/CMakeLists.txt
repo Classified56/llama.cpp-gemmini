@@ -155,9 +155,16 @@ if (NOT WIN32 OR NOT BUILD_SHARED_LIBS)
     llama_build_and_test(test-grammar-parser.cpp)
     llama_build_and_test(test-grammar-integration.cpp)
     llama_build_and_test(test-llama-grammar.cpp)
-    llama_build_and_test(test-chat.cpp WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
-    target_include_directories(test-chat PRIVATE ${PROJECT_SOURCE_DIR}/tools/server)
-    target_link_libraries(test-chat PRIVATE server-context)
+    # llama_build_and_test(test-chat.cpp WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+    # target_include_directories(test-chat PRIVATE ${PROJECT_SOURCE_DIR}/tools/server)
+    # target_link_libraries(test-chat PRIVATE server-context)
+    if (TARGET server-context)
+        llama_build_and_test(test-chat.cpp WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+        target_include_directories(test-chat PRIVATE ${PROJECT_SOURCE_DIR}/tools/server)
+        target_link_libraries(test-chat PRIVATE server-context)
+    else()
+        message(STATUS "Skipping test-chat because server-context is not being built")
+    endif()
     # TODO: disabled on loongarch64 because the ggml-ci node lacks Python 3.8
     if (NOT ${CMAKE_SYSTEM_PROCESSOR} MATCHES "loongarch64")
         llama_build_and_test(test-json-schema-to-grammar.cpp   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
@@ -306,4 +313,21 @@ target_include_directories(test-export-graph-ops PRIVATE ${PROJECT_SOURCE_DIR}/g
 if (TARGET gguf-model-data)
     target_link_libraries(test-export-graph-ops PRIVATE gguf-model-data)
     target_compile_definitions(test-export-graph-ops PRIVATE LLAMA_HF_FETCH)
+endif()
+
+# Gemmini runtime-wrapper smoke test.
+#
+# This validates the runtime/kernel boundary independently from
+# test-backend-ops. On native x86 builds, the backend can be force-registered,
+# but the hardware runtime must remain unavailable.
+if (TARGET ggml-gemmini)
+    llama_build_and_test(test-gemmini-runtime.cpp)
+
+    target_include_directories(test-gemmini-runtime PRIVATE
+        ${PROJECT_SOURCE_DIR}/ggml/src/ggml-gemmini
+    )
+
+    target_link_libraries(test-gemmini-runtime PRIVATE
+        ggml-gemmini
+    )
 endif()
