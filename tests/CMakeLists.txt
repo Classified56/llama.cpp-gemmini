@@ -307,3 +307,14 @@ if (TARGET gguf-model-data)
     target_link_libraries(test-export-graph-ops PRIVATE gguf-model-data)
     target_compile_definitions(test-export-graph-ops PRIVATE LLAMA_HF_FETCH)
 endif()
+
+# set(TARGET llama-expert-trace)
+
+# add_executable(${TARGET} expert-trace.cpp)
+# target_include_directories(llama-expert-trace PRIVATE "${PROJECT_SOURCE_DIR}/src")
+# target_link_libraries(${TARGET} PRIVATE llama-common llama ${CMAKE_THREAD_LIBS_INIT})
+# target_compile_features(${TARGET} PRIVATE cxx_std_17)
+
+# if(LLAMA_TOOLS_INSTALL)
+#     install(TARGETS ${TARGET} RUNTIME)
+# endif()

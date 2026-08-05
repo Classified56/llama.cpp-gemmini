@@ -137,6 +137,27 @@ extern "C" {
 
     GGML_BACKEND_API void ggml_backend_cpu_set_use_ref(ggml_backend_t backend_cpu, bool use_ref);
 
+    // Optional single-threaded MUL_MAT_ID instrumentation. The callback runs
+    // after one expert matrix has completed and is not included in cycle_delta.
+    // Measurements are emitted only when the CPU op runs with one thread.
+    struct ggml_cpu_moe_measurement {
+        const char * tensor_name;
+        int64_t      expert;
+        int64_t      load;
+        uint64_t     cycle_before;
+        uint64_t     cycle_after;
+    };
+
+    typedef void (*ggml_cpu_moe_measurement_callback)(
+            const struct ggml_cpu_moe_measurement * measurement,
+            void * user_data);
+
+    GGML_BACKEND_API void ggml_cpu_set_moe_measurement_callback(
+            ggml_cpu_moe_measurement_callback callback,
+            void * user_data);
+
+    GGML_BACKEND_API const char * ggml_cpu_moe_cycle_counter_source(void);
+
     GGML_BACKEND_API ggml_backend_reg_t ggml_backend_cpu_reg(void);
 
     GGML_BACKEND_API void ggml_cpu_fp32_to_fp32(const float *,       float *, int64_t);
