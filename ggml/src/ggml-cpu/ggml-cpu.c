@@ -3,6 +3,7 @@
 
 #include "ggml-backend-impl.h"
 #include "ggml-backend.h"
+#include "ggml-cpu.h"
 #include "traits.h"
 #include "ggml-cpu-impl.h"
 #include "ggml-impl.h"
@@ -34,6 +35,9 @@
 #include <limits.h>
 #include <stdarg.h>
 #include <signal.h>
+#if defined(__i386__) || defined(__x86_64__)
+#include <x86intrin.h>
+#endif
 #if defined(__gnu_linux__)
 #include <syscall.h>
 #endif
@@ -84,6 +88,47 @@ float ggml_table_f32_e8m0_half[1 << 8];
 
 // precomputed f32 table for ue4m3 (1 KB) (simd-mappings.h)
 float ggml_table_f32_ue4m3[1 << 8];
+
+static ggml_cpu_moe_measurement_callback g_moe_measurement_callback = NULL;
+static void * g_moe_measurement_user_data = NULL;
+
+void ggml_cpu_set_moe_measurement_callback(
+        ggml_cpu_moe_measurement_callback callback,
+        void * user_data) {
+    g_moe_measurement_callback = callback;
+    g_moe_measurement_user_data = user_data;
+}
+
+const char * ggml_cpu_moe_cycle_counter_source(void) {
+#if defined(__i386__) || defined(__x86_64__)
+    return "rdtsc";
+#elif defined(__aarch64__)
+    return "cntvct_el0";
+#elif defined(__riscv)
+    return "rdcycle";
+#else
+    return "ggml_cycles";
+#endif
+}
+
+static uint64_t ggml_cpu_read_cycle_counter(void) {
+#if defined(__i386__) || defined(__x86_64__)
+    _mm_lfence();
+    const uint64_t value = __rdtsc();
+    _mm_lfence();
+    return value;
+#elif defined(__aarch64__)
+    uint64_t value;
+    __asm__ volatile("isb\n\tmrs %0, cntvct_el0\n\tisb" : "=r"(value) :: "memory");
+    return value;
+#elif defined(__riscv)
+    uint64_t value;
+    __asm__ volatile("fence iorw, iorw\n\trdcycle %0\n\tfence iorw, iorw" : "=r"(value) :: "memory");
+    return value;
+#else
+    return (uint64_t) ggml_cycles();
+#endif
+}
 
 #if defined(__ARM_ARCH)
 struct ggml_arm_arch_features_type {
@@ -1538,6 +1583,10 @@ static void ggml_compute_forward_mul_mat_id(
     const int ith = params->ith;
     const int nth = params->nth;
 
+    ggml_cpu_moe_measurement_callback measurement_callback = g_moe_measurement_callback;
+    void * measurement_user_data = g_moe_measurement_user_data;
+    const bool measure_experts = measurement_callback != NULL && nth == 1;
+
     const enum ggml_type type = src0->type;
 
     const bool src1_cont = ggml_is_contiguous(src1);
@@ -1645,6 +1694,8 @@ static void ggml_compute_forward_mul_mat_id(
             continue;
         }
 
+        const uint64_t cycle_before = measure_experts ? ggml_cpu_read_cycle_counter() : 0;
+
         const char * src0_cur = (const char *) src0->data + cur_a * nb02;
         const void * wdata = (src1->type == vec_dot_type) ? src1->data : params->wdata;
         const size_t row_size = ggml_row_size(vec_dot_type, ne10);
@@ -1696,6 +1747,18 @@ static void ggml_compute_forward_mul_mat_id(
             }
 
             current_chunk = atomic_fetch_add_explicit(current_chunk_ctr, 1, memory_order_relaxed);
+        }
+
+        if (measure_experts) {
+            const uint64_t cycle_after = ggml_cpu_read_cycle_counter();
+            const struct ggml_cpu_moe_measurement measurement = {
+                dst->name,
+                cur_a,
+                cne1,
+                cycle_before,
+                cycle_after,
+            };
+            measurement_callback(&measurement, measurement_user_data);
         }
     }
 }

@@ -1,0 +1,19 @@
+MoE expert trace summary
+========================
+Input logs: 1
+Phases: prefill
+Cycle sources: rdtsc
+Total expert records: 768
+Active expert records: 700
+Layers: 24
+Expert positions: 32
+Pearson(load, cycles): 0.99985063
+Linear-fit R-squared: 0.99970129
+Linear-fit slope: 4163244.537647
+Median cycles/load: 4176112.583333
+Mean cycles/load: 4229541.426301
+Std. dev. cycles/load: 138856.741491
+Heatmap metric: mean cycles/load (one sample per expert)
+
+A run-to-run CV heatmap requires at least two input logs containing
+measurements for the same layer/expert positions.
