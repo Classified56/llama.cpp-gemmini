@@ -315,6 +315,22 @@ static acc_scale_t_bits acc_scale_t_to_acc_scale_t_bits(acc_scale_t x) {
     ROCC_INSTRUCTION(XCUSTOM_ACC, rd, config_reg, _placeholder, k_COUNTER) \
   }
 
+static inline uint64_t gemmini_read_cycle() {
+#if defined(__riscv)
+    std::uint64_t value;
+
+    asm volatile(
+        "rdcycle %0"
+        : "=r"(value)
+        :
+        : "memory");
+
+    return value;
+#else
+    return 0;
+#endif
+}
+
 // Read counter
 static uint32_t counter_read(size_t index) {
   uint32_t config_reg = (index & 0x7) << 4;
