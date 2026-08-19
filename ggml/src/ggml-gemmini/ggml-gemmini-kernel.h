@@ -1,7 +1,14 @@
 #pragma once
 
-#include "ggml-gemmini-runtime.h"
+#include <cstddef>
+#include <cstdint>
 
-bool ggml_gemmini_kernel_is_available();
+bool ggml_gemmini_hw_init();
 
-ggml_gemmini_runtime_status ggml_gemmini_kernel_matmul_i8(const ggml_gemmini_matmul_i8_params & params);
+bool ggml_gemmini_mul_mat_i8_i32(
+    const int8_t * src0_nk,
+    const int8_t * src1_mk,
+    int32_t * dst_mn,
+    size_t k,
+    size_t n,
+    size_t m);

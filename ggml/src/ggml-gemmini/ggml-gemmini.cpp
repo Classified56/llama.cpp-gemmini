@@ -1,5 +1,5 @@
 #include "ggml-gemmini.h"
-#include "ggml-gemmini-runtime.h"
+#include "ggml-gemmini-kernel.h"
 
 #include "ggml-impl.h"
 #include "ggml-backend-impl.h"
@@ -203,13 +203,53 @@ static void ggml_gemmini_mul_mat_i8_i32_ref(struct ggml_tensor * dst) {
 // Gemmini hardware hook
 // -----------------------------------------------------------------------------
 
-static bool ggml_gemmini_try_mul_mat_i8_i32_hw(struct ggml_tensor * dst) {
-    GGML_UNUSED(dst);
+static bool ggml_gemmini_try_mul_mat_i8_i32_hw(
+        struct ggml_tensor * dst) {
 
-#if defined(GGML_GEMMINI_ENABLE_TILED_MATMUL)
-    return ggml_gemmini_execute_runtime_i8(dst);
-#else
+#if !defined(GGML_GEMMINI_ENABLE_TILED_MATMUL)
+    (void) dst;
     return false;
+#else
+
+    const ggml_tensor * src0 = dst->src[0];
+    const ggml_tensor * src1 = dst->src[1];
+
+    if (src0 == nullptr || src1 == nullptr) {
+        return false;
+    }
+
+    if (src0->type != GGML_TYPE_I8 ||
+        src1->type != GGML_TYPE_I8 ||
+        dst->type  != GGML_TYPE_I32) {
+        return false;
+    }
+
+    if (!ggml_is_contiguous(src0) ||
+        !ggml_is_contiguous(src1) ||
+        !ggml_is_contiguous(dst)) {
+        return false;
+    }
+
+    const size_t K = src0->ne[0];
+    const size_t N = src0->ne[1];
+    const size_t M = src1->ne[1];
+
+    if (src1->ne[0] != (int64_t) K) {
+        return false;
+    }
+
+    if (dst->ne[0] != (int64_t) N ||
+        dst->ne[1] != (int64_t) M) {
+        return false;
+    }
+
+    return ggml_gemmini_mul_mat_i8_i32(
+        static_cast<const int8_t *>(src0->data),
+        static_cast<const int8_t *>(src1->data),
+        static_cast<int32_t *>(dst->data),
+        K,
+        N,
+        M);
 #endif
 }
 

@@ -315,22 +315,65 @@ if (TARGET gguf-model-data)
     target_compile_definitions(test-export-graph-ops PRIVATE LLAMA_HF_FETCH)
 endif()
 
-# Gemmini runtime-wrapper smoke test.
-#
-# This validates the runtime/kernel boundary independently from
-# test-backend-ops. On native x86 builds, the backend can be force-registered,
-# but the hardware runtime must remain unavailable.
-if (TARGET ggml-gemmini)
-    llama_build_and_test(test-gemmini-runtime.cpp)
+option(
+    LLAMA_BUILD_GEMMINI_HW_TESTS
+    "Build direct RISC-V Gemmini hardware tests for FireSim"
+    OFF
+)
 
-    target_include_directories(test-gemmini-runtime PRIVATE
-        ${PROJECT_SOURCE_DIR}/ggml/src/ggml-gemmini
+if (LLAMA_BUILD_GEMMINI_HW_TESTS)
+    if (NOT CMAKE_SYSTEM_PROCESSOR MATCHES "riscv")
+        message(FATAL_ERROR
+            "LLAMA_BUILD_GEMMINI_HW_TESTS requires a RISC-V cross build")
+    endif()
+
+    set(
+        GGML_GEMMINI_VENDOR_ROOT
+        "${CMAKE_SOURCE_DIR}/ggml/src/ggml-gemmini/vendor/gemmini"
     )
 
-    target_link_libraries(test-gemmini-runtime PRIVATE
-        ggml-gemmini
+    foreach(required_file
+        "include/gemmini.h"
+        "include/gemmini_params.h"
+        "include/gemmini_counter.h"
+        "rocc-software/src/xcustom.h"
     )
+        if (NOT EXISTS "${GGML_GEMMINI_VENDOR_ROOT}/${required_file}")
+            message(FATAL_ERROR
+                "Missing vendored Gemmini file: "
+                "${GGML_GEMMINI_VENDOR_ROOT}/${required_file}")
+        endif()
+    endforeach()
+
+    add_executable(
+        test-gemmini-instruction
+        test-gemmini-instruction.cpp
+    )
+
+    add_executable(
+        test-gemmini-kernel
+        test-gemmini-kernel.cpp
+    )
+
+    foreach(target
+        test-gemmini-instruction
+        test-gemmini-kernel
+    )
+        target_include_directories(
+            ${target}
+            PRIVATE
+                "${GGML_GEMMINI_VENDOR_ROOT}"
+        )
+
+        # tiled_matmul_auto() uses sqrt() internally.
+        target_link_libraries(
+            ${target}
+            PRIVATE
+                m
+        )
+    endforeach()
 endif()
+
 
 # set(TARGET llama-expert-trace)
 

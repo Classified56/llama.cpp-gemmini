@@ -41,6 +41,7 @@
         "GGML_STATIC": "ON",
 
         "GGML_CURL": "OFF",
+        "GGML_BACKEND_DL": "OFF",
         "LLAMA_BUILD_TESTS": "ON",
         "LLAMA_BUILD_TOOLS": "ON",
         "LLAMA_BUILD_EXAMPLES": "OFF",
@@ -135,7 +136,11 @@
       "binaryDir": "${sourceDir}/build-riscv-gemmini-debug",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "GGML_GEMMINI": "ON"
+        "GGML_GEMMINI": "ON",
+        "GGML_GEMMINI_ENABLE_TILED_MATMUL": "ON",
+        "GGML_GEMMINI_FORCE_AVAILABLE": "OFF",
+        "GGML_GEMMINI_ENABLE_NATIVE_TEST_MATMUL": "OFF",
+        "LLAMA_BUILD_GEMMINI_HW_TESTS": "ON"
       }
     },
     {

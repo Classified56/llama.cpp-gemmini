@@ -39,3 +39,15 @@ these files. The provided `scripts/update-gemmini-vendor.sh` does this
 automatically when the source directory is a Git checkout.
 
 Do not remove upstream copyright or license notices.
+
+Gemmini source commit:
+Chipyard source commit:
+FireSim TARGET_CONFIG:
+XCUSTOM_ACC:
+DIM:
+BANK_NUM:
+BANK_ROWS:
+ACC_ROWS:
+elem_t:
+acc_t:
+gemmini_params.h SHA256:

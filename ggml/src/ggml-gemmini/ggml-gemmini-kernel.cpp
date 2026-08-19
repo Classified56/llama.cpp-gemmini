@@ -1,78 +1,91 @@
+// ggml-gemmini-kernel.cpp
+
 #include "ggml-gemmini-kernel.h"
 
-#include <cstdlib>
-#include <cstring>
-#include <type_traits>
+#if defined(__riscv)
 
-#if defined(GGML_GEMMINI_RUNTIME_HAS_HARDWARE)
 extern "C" {
 #include "include/gemmini.h"
 }
 
-// This wrapper is intentionally I8 x I8 -> I32. Fail at compile time if the
-// bundled/overridden generated Gemmini configuration does not match it.
-static_assert(std::is_same<elem_t, std::int8_t>::value,
-              "Gemmini elem_t must be int8_t for the initial GGML wrapper");
-static_assert(std::is_same<acc_t, std::int32_t>::value,
-              "Gemmini acc_t must be int32_t for the initial GGML wrapper");
+#include <cstdint>
+
+static_assert(sizeof(elem_t) == sizeof(int8_t));
+static_assert(sizeof(acc_t)  == sizeof(int32_t));
+
+#ifndef ACC_READ_FULL_WIDTH
+#error "Gemmini backend requires full-width accumulator reads"
 #endif
 
-#if defined(__GNUC__) || defined(__clang__)
-#define GGML_GEMMINI_NOINLINE __attribute__((noinline))
-#define GGML_GEMMINI_USED     __attribute__((used))
-#else
-#define GGML_GEMMINI_NOINLINE
-#define GGML_GEMMINI_USED
-#endif
+bool ggml_gemmini_hw_init() {
+    gemmini_flush(0);
+    gemmini_fence();
 
-bool ggml_gemmini_kernel_is_available() {
-#if defined(GGML_GEMMINI_RUNTIME_HAS_HARDWARE) && defined(__riscv)
-    const char * disabled = std::getenv("GGML_DISABLE_GEMMINI");
-    return disabled == nullptr || std::strcmp(disabled, "1") != 0;
+    return true;
+}
+
+bool ggml_gemmini_mul_mat_i8_i32(
+        const int8_t * src0_nk,
+        const int8_t * src1_mk,
+        int32_t * dst_mn,
+        size_t k,
+        size_t n,
+        size_t m) {
+
+    tiled_matmul_auto(
+        m,                          // I
+        n,                          // J
+        k,                          // K
+
+        reinterpret_cast<const elem_t *>(src1_mk),
+        reinterpret_cast<const elem_t *>(src0_nk),
+
+        nullptr,                    // no bias
+        reinterpret_cast<void *>(dst_mn),
+
+        k,                          // A row stride
+        k,                          // B row stride
+        0,                          // D row stride
+        n,                          // C row stride
+
+        MVIN_SCALE_IDENTITY,
+        MVIN_SCALE_IDENTITY,
+        static_cast<scale_acc_t>(1),
+
+        NO_ACTIVATION,
+        ACC_SCALE_IDENTITY,
+        0,                          // bert scale
+
+        false,                      // repeating bias
+
+        false,                      // transpose A
+        true,                       // transpose B
+
+        true,                       // full C => acc_t / int32
+        false,                      // low D
+
+        0,                          // weightA
+        WS                          // weight-stationary
+    );
+
+    return true;
+}
+
 #else
+
+bool ggml_gemmini_hw_init() {
     return false;
-#endif
 }
 
-GGML_GEMMINI_NOINLINE
-GGML_GEMMINI_USED
-ggml_gemmini_runtime_status ggml_gemmini_kernel_matmul_i8(const ggml_gemmini_matmul_i8_params & params) {
-#if !defined(GGML_GEMMINI_RUNTIME_HAS_HARDWARE)
-    (void) params;
-    return GGML_GEMMINI_RUNTIME_UNAVAILABLE;
-#else
-    // This is now the only function that needs the Gemmini API.
-    //
-    // Future implementation:
-    //
-    // tiled_matmul_auto(
-    //     params.m, params.n, params.k,
-    //     reinterpret_cast<const elem_t *>(params.a),
-    //     reinterpret_cast<const elem_t *>(params.b),
-    //     nullptr,
-    //     reinterpret_cast<void *>(params.c),
-    //     params.stride_a,
-    //     params.stride_b,
-    //     params.stride_c,   // ignored with D == nullptr, but keep valid
-    //     params.stride_c,
-    //     MVIN_SCALE_IDENTITY,
-    //     MVIN_SCALE_IDENTITY,
-    //     MVIN_SCALE_IDENTITY,
-    //     NO_ACTIVATION,
-    //     ACC_SCALE_IDENTITY,
-    //     0,
-    //     false,
-    //     false,
-    //     false,
-    //     true,             // full_C: write acc_t / int32 output
-    //     false,            // low_D
-    //     0,
-    //     WS);
-    //
-    // gemmini_fence();
-    // return GGML_GEMMINI_RUNTIME_SUCCESS;
+bool ggml_gemmini_mul_mat_i8_i32(
+        const int8_t *,
+        const int8_t *,
+        int32_t *,
+        size_t,
+        size_t,
+        size_t) {
 
-    (void) params;
-    return GGML_GEMMINI_RUNTIME_EXECUTION_FAILED;
-#endif
+    return false;
 }
+
+#endif
