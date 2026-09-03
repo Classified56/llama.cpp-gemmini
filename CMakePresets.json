@@ -126,7 +126,10 @@
       "binaryDir": "${sourceDir}/build-riscv-gemmini-release",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "GGML_GEMMINI": "ON"
+        "GGML_GEMMINI": "ON",
+        "GGML_USE_GEMMINI": "ON",
+        "GGML_GEMMINI_ENABLE_TILED_MATMUL": "ON",
+        "GGML_BACKEND_DL": "OFF"
       }
     },
     {
@@ -137,10 +140,13 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "GGML_GEMMINI": "ON",
+        "GGML_USE_GEMMINI": "ON",
         "GGML_GEMMINI_ENABLE_TILED_MATMUL": "ON",
+        "GGML_BACKEND_DL": "OFF",
         "GGML_GEMMINI_FORCE_AVAILABLE": "OFF",
         "GGML_GEMMINI_ENABLE_NATIVE_TEST_MATMUL": "OFF",
-        "LLAMA_BUILD_GEMMINI_HW_TESTS": "ON"
+        "LLAMA_BUILD_GEMMINI_HW_TESTS": "ON",
+        "LLAMA_BUILD_GEMMINI_BACKEND_TESTS": "ON"
       }
     },
     {

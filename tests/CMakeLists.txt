@@ -374,6 +374,43 @@ if (LLAMA_BUILD_GEMMINI_HW_TESTS)
     endforeach()
 endif()
 
+option(
+    LLAMA_BUILD_GEMMINI_BACKEND_TESTS
+    "Build GGML-level Gemmini backend tests"
+    OFF
+)
+
+if (LLAMA_BUILD_GEMMINI_BACKEND_TESTS)
+    if (NOT TARGET ggml-gemmini)
+        message(FATAL_ERROR
+            "LLAMA_BUILD_GEMMINI_BACKEND_TESTS requires GGML_GEMMINI=ON")
+    endif()
+
+    llama_build(test-gemmini-backend-contract.cpp)
+    llama_build(test-gemmini-backend-compute.cpp)
+    llama_build(test-gemmini-adapters.cpp)
+
+    foreach(target
+        test-gemmini-backend-contract
+        test-gemmini-backend-compute
+        test-gemmini-adapters
+    )
+        target_include_directories(
+            ${target}
+            PRIVATE
+                "${CMAKE_SOURCE_DIR}/ggml/src"
+                "${CMAKE_SOURCE_DIR}/ggml/src/ggml-gemmini"
+        )
+
+        # The tests call the Gemmini backend API directly.
+        target_link_libraries(
+            ${target}
+            PRIVATE
+                ggml-gemmini
+        )
+    endforeach()
+endif()
+
 
 # set(TARGET llama-expert-trace)
 

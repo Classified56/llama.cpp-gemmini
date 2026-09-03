@@ -2,6 +2,7 @@ ggml_add_backend_library(
     ggml-gemmini
     ggml-gemmini.cpp
     ggml-gemmini-kernel.cpp
+    ggml-gemmini-adapter.cpp
 )
 
 if (TARGET ggml-cpu)

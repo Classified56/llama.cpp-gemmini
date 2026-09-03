@@ -1,5 +1,6 @@
 #include "ggml-gemmini.h"
 #include "ggml-gemmini-kernel.h"
+#include "ggml-gemmini-adapter.h"
 
 #include "ggml-impl.h"
 #include "ggml-backend-impl.h"
@@ -149,7 +150,14 @@ static bool ggml_gemmini_can_mul_mat_i8_i32(const struct ggml_tensor * op) {
 }
 
 static bool ggml_gemmini_supports_mul_mat(const struct ggml_tensor * op) {
-    return ggml_gemmini_can_mul_mat_f32(op) || ggml_gemmini_can_mul_mat_i8_i32(op);
+    GGML_LOG_DEBUG(
+        "Gemmini supports? op=%s src0=%s src1=%s \n",
+        ggml_op_desc(op),
+        ggml_type_name(op->src[0]->type),
+        ggml_type_name(op->src[1]->type)
+    );
+    return ggml_gemmini_can_mul_mat_f32(op) || ggml_gemmini_can_mul_mat_i8_i32(op) ||
+           ggml_gemmini_adapter_supports(op);
 }
 
 // -----------------------------------------------------------------------------
@@ -253,30 +261,112 @@ static bool ggml_gemmini_try_mul_mat_i8_i32_hw(
 #endif
 }
 
-static void ggml_gemmini_mul_mat(ggml_backend_gemmini_context * ctx, struct ggml_tensor * dst) {
+
+// static void ggml_gemmini_mul_mat(ggml_backend_gemmini_context * ctx, struct ggml_tensor * dst) {
+//     GGML_UNUSED(ctx);
+
+//     if (ggml_gemmini_can_mul_mat_i8_i32(dst)) {
+//         if (ggml_gemmini_try_mul_mat_i8_i32_hw(dst)) {
+//             return;
+//         }
+
+// #if defined(GGML_GEMMINI_ENABLE_NATIVE_TEST_MATMUL)
+//         ggml_gemmini_mul_mat_i8_i32_ref(dst);
+//         return;
+// #else
+//         // GGML_ABORT("%s: I8xI8->I32 MUL_MAT reached Gemmini but hardware path is not implemented: %s",
+//         //            __func__, ggml_gemmini_op_name(dst));
+//         GGML_ABORT("%s: Gemmini F32/Q8 adapter failed for %s", __func__, ggml_gemmini_op_name(dst));
+// #endif
+//     }
+
+//     if (ggml_gemmini_can_mul_mat_f32(dst)) {
+//         ggml_gemmini_mul_mat_f32_ref(dst);
+//         return;
+//     }
+
+//     GGML_ABORT("%s: unsupported MUL_MAT assigned to Gemmini backend: %s",
+//                __func__, ggml_gemmini_op_name(dst));
+// }
+
+static void ggml_gemmini_mul_mat(
+        ggml_backend_gemmini_context * ctx,
+        struct ggml_tensor * dst) {
     GGML_UNUSED(ctx);
 
+    // ggml_gemmini_log_mul_mat(dst);
+
+#if !defined(GGML_GEMMINI_ENABLE_TILED_MATMUL)
+
+    GGML_ABORT(
+        "%s: Gemmini tiled MUL_MAT path is not enabled",
+        __func__);
+
+#else
+
+    // ---------------------------------------------------------
+    // 1. Diagnostic / native Gemmini I8 x I8 -> I32 path
+    // ---------------------------------------------------------
+
     if (ggml_gemmini_can_mul_mat_i8_i32(dst)) {
+        GGML_LOG_INFO(
+            "ggml-gemmini: dispatch I8 x I8 -> I32 hardware path\n");
+
         if (ggml_gemmini_try_mul_mat_i8_i32_hw(dst)) {
             return;
         }
 
-#if defined(GGML_GEMMINI_ENABLE_NATIVE_TEST_MATMUL)
-        ggml_gemmini_mul_mat_i8_i32_ref(dst);
-        return;
-#else
-        GGML_ABORT("%s: I8xI8->I32 MUL_MAT reached Gemmini but hardware path is not implemented: %s",
-                   __func__, ggml_gemmini_op_name(dst));
-#endif
+        GGML_ABORT(
+            "%s: Gemmini I8 x I8 -> I32 hardware execution failed",
+            __func__);
     }
+
+    // ---------------------------------------------------------
+    // 2. Model-facing adapter
+    //
+    // F32  x F32 -> F32
+    // Q8_0 x F32 -> F32
+    // ---------------------------------------------------------
+
+    if (ggml_gemmini_adapter_supports(dst)) {
+        GGML_LOG_INFO(
+            "ggml-gemmini: dispatch adapter "
+            "src0=%s src1=%s dst=%s\n",
+            ggml_type_name(dst->src[0]->type),
+            ggml_type_name(dst->src[1]->type),
+            ggml_type_name(dst->type));
+
+        if (ggml_gemmini_adapter_compute(dst)) {
+            return;
+        }
+
+        GGML_ABORT(
+            "%s: Gemmini F32/Q8_0 adapter execution failed",
+            __func__);
+    }
+
+#if defined(GGML_GEMMINI_ENABLE_NATIVE_TEST_MATMUL)
+
+    // ---------------------------------------------------------
+    // 3. Optional CPU/reference F32 path used during host testing
+    // ---------------------------------------------------------
 
     if (ggml_gemmini_can_mul_mat_f32(dst)) {
         ggml_gemmini_mul_mat_f32_ref(dst);
         return;
     }
 
-    GGML_ABORT("%s: unsupported MUL_MAT assigned to Gemmini backend: %s",
-               __func__, ggml_gemmini_op_name(dst));
+#endif
+
+    GGML_ABORT(
+        "%s: unsupported MUL_MAT assigned to Gemmini: "
+        "src0=%s src1=%s dst=%s",
+        __func__,
+        ggml_type_name(dst->src[0]->type),
+        ggml_type_name(dst->src[1]->type),
+        ggml_type_name(dst->type));
+
+#endif
 }
 
 // -----------------------------------------------------------------------------
@@ -457,6 +547,31 @@ static bool ggml_backend_gemmini_device_supports_op(
     }
 }
 
+static bool ggml_backend_gemmini_device_offload_op(
+        ggml_backend_dev_t dev,
+        const struct ggml_tensor * op) {
+    GGML_UNUSED(dev);
+
+    if (op == nullptr) {
+        return false;
+    }
+
+    GGML_LOG_DEBUG(
+        "Gemmini offload? op=%s src0=%s src1=%s \n",
+        ggml_op_desc(op),
+        ggml_type_name(op->src[0]->type),
+        ggml_type_name(op->src[1]->type)
+    );
+
+    switch (op->op) {
+        case GGML_OP_MUL_MAT:
+            return ggml_gemmini_adapter_supports(op);
+
+        default:
+            return false;
+    }
+}
+
 static bool ggml_backend_gemmini_device_supports_buft(
         ggml_backend_dev_t dev,
         ggml_backend_buffer_type_t buft) {
@@ -476,7 +591,7 @@ static const struct ggml_backend_device_i ggml_backend_gemmini_device_i = {
     /* .buffer_from_host_ptr = */ ggml_backend_gemmini_device_buffer_from_host_ptr,
     /* .supports_op          = */ ggml_backend_gemmini_device_supports_op,
     /* .supports_buft        = */ ggml_backend_gemmini_device_supports_buft,
-    /* .offload_op           = */ nullptr,
+    /* .offload_op           = */ ggml_backend_gemmini_device_offload_op,
     /* .event_new            = */ nullptr,
     /* .event_free           = */ nullptr,
     /* .event_synchronize    = */ nullptr,
